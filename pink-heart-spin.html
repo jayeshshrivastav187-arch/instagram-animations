@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pink Hearts</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body { background: #ffd6e7; cursor: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 35%, rgba(200,50,100,0.15) 100%);
+    pointer-events: none; z-index: 10;
+  }
+  #cursor {
+    position: fixed; width: 18px; height: 18px;
+    pointer-events: none; z-index: 999;
+    transform: translate(-50%, -50%);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<svg id="cursor" viewBox="0 0 20 18" xmlns="http://www.w3.org/2000/svg">
+  <path d="M10 16.5S1 10.5 1 5a4 4 0 0 1 9-1.2A4 4 0 0 1 19 5c0 5.5-9 11.5-9 11.5z" fill="#e0336a"/>
+</svg>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const cursorEl = document.getElementById('cursor');
+
+let W = canvas.width  = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+window.addEventListener('resize', () => {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  build();
+});
+window.addEventListener('mousemove', e => {
+  cursorEl.style.left = e.clientX + 'px';
+  cursorEl.style.top  = e.clientY + 'px';
+});
+
+const TONES = [
+  '#e8517f','#f47bab','#ff9ec5','#d63870',
+  '#ff6699','#ffc2d9','#c0274f','#ffffff',
+  '#ffb3d9','#ff4488','#ffd6e8','#e03070'
+];
+
+// ── Parametric heart point ──
+function hpt(t, R) {
+  return {
+    x:  R * 0.055 * 16 * Math.pow(Math.sin(t), 3),
+    y: -R * 0.05  * (13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t))
+  };
+}
+
+// ── Draw single heart ──
+function drawHeart(cx, cy, sx, sy, color, alpha, angle) {
+  if (alpha <= 0 || sx <= 0 || sy <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.scale(sx, sy);
+  ctx.beginPath();
+  ctx.moveTo(0, -0.3);
+  ctx.bezierCurveTo( 0,   -1,    1.2,-1,    1.2,  0);
+  ctx.bezierCurveTo( 1.2,  0.8,  0,   1.5,  0,    1.8);
+  ctx.bezierCurveTo( 0,    1.5, -1.2, 0.8, -1.2,  0);
+  ctx.bezierCurveTo(-1.2, -1,    0,  -1,    0,   -0.3);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Build border hearts ──
+let hearts = [];
+function build() {
+  hearts = [];
+  const R   = Math.min(W, H) * 0.36;
+  const total = 480;
+
+  for (let i = 0; i < total; i++) {
+    const tBase   = Math.random() * Math.PI * 2;
+    // scatter band ±50px around the outline
+    const scatter = (Math.random() - 0.5) * 100;
+    const p       = hpt(tBase, R + scatter);
+
+    hearts.push({
+      // normalized position on heart (-1..1 scale)
+      nx: p.x / R,   // used to compute final world x
+      ny: p.y / R,   // used to compute final world y
+      R,
+      scatter,
+      tBase,
+      size:       4 + Math.random() * 14,
+      color:      TONES[Math.floor(Math.random() * TONES.length)],
+      pulsePhase: Math.random() * Math.PI * 2,
+      pulseSpeed: 0.012 + Math.random() * 0.025,
+      selfSpin:   (Math.random() - 0.5) * 0.03,
+      selfAngle:  Math.random() * Math.PI * 2,
+      alpha:      0.55 + Math.random() * 0.45,
+      driftAmp:   Math.random() * 5,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftSpd:   0.003 + Math.random() * 0.009,
+    });
+  }
+}
+build();
+
+// ── Floaters ──
+class FloatHeart {
+  constructor(init) { this.reset(init); }
+  reset(init) {
+    this.x = Math.random() * W;
+    this.y = init ? Math.random() * H : H + 30;
+    this.size  = 2 + Math.random() * 9;
+    this.vy    = -(0.25 + Math.random() * 0.7);
+    this.vx    = (Math.random() - 0.5) * 0.4;
+    this.alpha = 0.1 + Math.random() * 0.4;
+    this.angle = Math.random() * Math.PI * 2;
+    this.spin  = (Math.random() - 0.5) * 0.012;
+    this.wb    = Math.random() * Math.PI * 2;
+    this.wbSpd = 0.01 + Math.random() * 0.02;
+    this.life    = 0;
+    this.maxLife = 240 + Math.random() * 320;
+    this.color = TONES[Math.floor(Math.random() * TONES.length)];
+  }
+  update() {
+    this.life++;
+    this.x += this.vx + Math.sin(this.wb) * 0.04;
+    this.y += this.vy;
+    this.wb += this.wbSpd;
+    this.angle += this.spin;
+    const fin  = Math.min(1, this.life / 40);
+    const fout = Math.min(1, (this.maxLife - this.life) / 50);
+    this.a = this.alpha * fin * fout;
+    if (this.life >= this.maxLife || this.y < -40) this.reset(false);
+  }
+  draw() {
+    drawHeart(this.x, this.y, this.size * 0.5, this.size * 0.5, this.color, this.a, this.angle);
+  }
+}
+
+// ── Bursts ──
+const bursts = [];
+canvas.addEventListener('click', e => {
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2;
+    const spd = 2 + Math.random() * 4;
+    bursts.push({
+      x: e.clientX, y: e.clientY,
+      vx: Math.cos(a)*spd, vy: Math.sin(a)*spd - 1,
+      size: 3 + Math.random() * 12, alpha: 1,
+      color: TONES[Math.floor(Math.random() * TONES.length)]
+    });
+  }
+});
+
+const floaters = Array.from({ length: 55 }, () => new FloatHeart(true));
+
+// ── Background ──
+let bgPhase = 0;
+function drawBg() {
+  bgPhase += 0.002;
+  const grd = ctx.createLinearGradient(
+    W*(0.2+0.15*Math.sin(bgPhase)),       H*(0.2+0.1*Math.cos(bgPhase*0.7)),
+    W*(0.8+0.12*Math.sin(bgPhase*0.9+1)), H*(0.8+0.1*Math.cos(bgPhase*1.2))
+  );
+  grd.addColorStop(0,   '#ffe0ee');
+  grd.addColorStop(0.3, '#ffb3cc');
+  grd.addColorStop(0.55,'#f96899');
+  grd.addColorStop(0.8, '#f4a0bf');
+  grd.addColorStop(1,   '#fcd6e8');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ── Main loop ──
+// Vertical rotation = rotate around Y axis
+// Simulated with perspective: scaleX = cos(rotY), depth shading
+let rotY   = 0;          // current Y-axis rotation angle
+const ROT_SPEED = 0.008; // radians per frame
+
+let tick = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  tick++;
+  rotY += ROT_SPEED;
+
+  drawBg();
+
+  for (const h of floaters) { h.update(); h.draw(); }
+
+  const cx = W / 2;
+  const cy = H / 2;
+  const R  = Math.min(W, H) * 0.36;
+
+  // cosine of rotation: when cos=0 the heart is edge-on (squished), cos=±1 full face
+  const cosY = Math.cos(rotY);
+  // depth factor for slight shading: front face brighter, back face dimmer
+  // cosY > 0 = front, cosY < 0 = back face (mirror + dim)
+  const isFront = cosY >= 0;
+
+  // sort hearts by their "depth" (x * sinY) so back ones draw first
+  const sinY = Math.sin(rotY);
+
+  // We project 3D heart onto 2D:
+  // 3D coords: X3 = h.bx (the heart-shape x), Y3 = h.by, Z3 = 0 (flat shape)
+  // After Y-axis rotation:
+  //   screenX = cx + X3 * cosY
+  //   screenY = cy + Y3          (Y unchanged by Y-axis rotation)
+  //   depth   = X3 * sinY        (Z after rotation)
+
+  // Build projected list and depth-sort
+  const projected = hearts.map(h => {
+    const dx = Math.sin(h.driftPhase + tick * h.driftSpd) * h.driftAmp;
+    const dy = Math.cos(h.driftPhase + tick * h.driftSpd * 0.7) * h.driftAmp;
+
+    // base position in heart-shape space
+    const bx = h.nx * R + dx;
+    const by = h.ny * R + dy;
+
+    // perspective Y-rotation
+    const screenX = cx + bx * cosY;
+    const screenY = cy + by;
+    const depth   = bx * sinY;
+
+    // pulse
+    const pulse = 1 + 0.15 * Math.sin(h.pulsePhase + tick * h.pulseSpeed);
+    const s = h.size * pulse;
+
+    // x-scale squishes with cosY (perspective effect)
+    const scaleX = Math.abs(cosY);
+    const scaleY = 1.0;
+
+    // alpha: back face dimmer
+    const alphaMod = 0.4 + 0.6 * Math.abs(cosY);
+    const alpha = h.alpha * alphaMod * (0.78 + 0.22 * Math.sin(h.pulsePhase + tick * h.pulseSpeed * 0.7));
+
+    h.selfAngle += h.selfSpin;
+
+    // color tint: back face slightly different hue (darker pink)
+    let color = h.color;
+    if (!isFront) {
+      // swap to a deeper tone for back face
+      color = h.color === '#ffffff' ? '#ffc2d9' : '#c0274f';
+    }
+
+    return { screenX, screenY, depth, s, scaleX, scaleY, color, alpha, angle: h.selfAngle };
+  });
+
+  // sort back-to-front
+  projected.sort((a, b) => a.depth - b.depth);
+
+  for (const p of projected) {
+    if (p.scaleX < 0.01) continue;
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.translate(p.screenX, p.screenY);
+    ctx.rotate(p.angle);
+    // squish x for perspective
+    ctx.scale(p.s * 0.5 * p.scaleX, p.s * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(0,-0.3);
+    ctx.bezierCurveTo(0,-1,1.2,-1,1.2,0);
+    ctx.bezierCurveTo(1.2,0.8,0,1.5,0,1.8);
+    ctx.bezierCurveTo(0,1.5,-1.2,0.8,-1.2,0);
+    ctx.bezierCurveTo(-1.2,-1,0,-1,0,-0.3);
+    ctx.closePath();
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // bursts
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const p = bursts[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.09;
+    p.alpha -= 0.02;
+    if (p.alpha <= 0) { bursts.splice(i, 1); continue; }
+    drawHeart(p.x, p.y, p.size*0.5, p.size*0.5, p.color, p.alpha, 0);
+  }
+}
+
+frame();
+</script>
+</body>
+</html>
